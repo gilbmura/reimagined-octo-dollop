@@ -51,6 +51,7 @@ def api_trips():
         start_date = request.args.get('start')
         end_date = request.args.get('end')
         limit = int(request.args.get('limit', 1000000))  # Default limit for dashboard
+        offset = int(request.args.get('offset', 0))  # Add offset for pagination
         
         # Build SQL query with date filtering
         where_conditions = []
@@ -75,9 +76,9 @@ def api_trips():
                speed_kmh, fare_per_km, hour_of_day, day_of_week, rush_hour, is_weekend
         FROM trips {where_clause}
         ORDER BY pickup_datetime DESC
-        LIMIT %s
+        LIMIT %s OFFSET %s
         """
-        params.append(limit)
+        params.extend([limit, offset])
         
         cur = conn.cursor(MySQLdb.cursors.DictCursor)
         cur.execute(sql, params)
@@ -85,6 +86,78 @@ def api_trips():
         cur.close()
         
         return jsonify(rows)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
+
+@app.route('/trips/all', methods=['GET'])
+def api_trips_all():
+    """Get all trips with pagination to handle large datasets"""
+    conn = get_db_connection()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+    
+    try:
+        # Get query parameters
+        start_date = request.args.get('start')
+        end_date = request.args.get('end')
+        page = int(request.args.get('page', 1))
+        page_size = int(request.args.get('page_size', 10000))  # Process 10k records at a time
+        
+        offset = (page - 1) * page_size
+        
+        # Build SQL query with date filtering
+        where_conditions = []
+        params = []
+        
+        if start_date:
+            where_conditions.append("DATE(pickup_datetime) >= %s")
+            params.append(start_date)
+        
+        if end_date:
+            where_conditions.append("DATE(pickup_datetime) <= %s")
+            params.append(end_date)
+        
+        where_clause = ""
+        if where_conditions:
+            where_clause = "WHERE " + " AND ".join(where_conditions)
+        
+        # Get total count first
+        count_sql = f"SELECT COUNT(*) as total FROM trips {where_clause}"
+        cur = conn.cursor(MySQLdb.cursors.DictCursor)
+        cur.execute(count_sql, params)
+        total_count = cur.fetchone()['total']
+        
+        # Get paginated data
+        sql = f"""
+        SELECT trip_id, vendor_id, pickup_datetime, dropoff_datetime, 
+               pickup_lat, pickup_lng, dropoff_lat, dropoff_lng,
+               distance_km, duration_min, fare_amount, tip_amount, payment_type,
+               speed_kmh, fare_per_km, hour_of_day, day_of_week, rush_hour, is_weekend
+        FROM trips {where_clause}
+        ORDER BY pickup_datetime DESC
+        LIMIT %s OFFSET %s
+        """
+        params.extend([page_size, offset])
+        
+        cur.execute(sql, params)
+        rows = cur.fetchall()
+        cur.close()
+        
+        return jsonify({
+            "data": rows,
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total_count,
+                "total_pages": (total_count + page_size - 1) // page_size,
+                "has_next": offset + page_size < total_count,
+                "has_prev": page > 1
+            }
+        })
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500

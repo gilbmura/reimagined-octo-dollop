@@ -22,20 +22,12 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       loadingOverlay.classList.remove("hidden");
 
-       // Build URL with optional date range
-       let apiUrl = `${BASE_URL}/trips`;
-       if (startDate && endDate) {
-         apiUrl += `?start=${startDate}&end=${endDate}`;
-       }
+      // Load all data using pagination
+      const allData = await loadAllTrips(startDate, endDate);
 
-      const response = await fetch(apiUrl);
-      const data = await response.json();
-
-      if (!Array.isArray(data)) throw new Error("Invalid data format");
-
-      updateStats(data);
-      renderCharts(data);
-      showActivityFeed(data);
+      updateStats(allData);
+      renderCharts(allData);
+      showActivityFeed(allData);
 
     } catch (error) {
       console.error("Error loading data:", error);
@@ -43,6 +35,51 @@ document.addEventListener("DOMContentLoaded", () => {
     } finally {
       loadingOverlay.classList.add("hidden");
     }
+  }
+
+  // ========== Load All Trips with Pagination ==========
+  async function loadAllTrips(startDate = null, endDate = null) {
+    let allData = [];
+    let page = 1;
+    let hasMore = true;
+    
+    console.log("Loading all trips data...");
+    
+    while (hasMore) {
+      // Build URL with pagination
+      let apiUrl = `${BASE_URL}/trips/all?page=${page}&page_size=10000`;
+      if (startDate && endDate) {
+        apiUrl += `&start=${startDate}&end=${endDate}`;
+      }
+
+      const response = await fetch(apiUrl);
+      const result = await response.json();
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      if (!result.data || !Array.isArray(result.data)) {
+        throw new Error("Invalid data format");
+      }
+
+      allData = allData.concat(result.data);
+      
+      console.log(`Loaded page ${page}: ${result.data.length} records (Total: ${allData.length})`);
+      
+      // Check if there are more pages
+      hasMore = result.pagination.has_next;
+      page++;
+      
+      // Safety check to prevent infinite loops
+      if (page > 100) {
+        console.warn("Reached maximum page limit (100). Stopping pagination.");
+        break;
+      }
+    }
+    
+    console.log(`Finished loading all data: ${allData.length} total records`);
+    return allData;
   }
 
   // ========== Filter Button ==========
