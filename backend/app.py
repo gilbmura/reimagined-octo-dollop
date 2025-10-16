@@ -6,7 +6,7 @@ from flask_cors import CORS
 from dotenv import load_dotenv
 import MySQLdb
 
-from algorithms import top_k_by_tip_percentage
+from backend.algorithms import top_k_by_tip_percentage
 
 
 load_dotenv()
